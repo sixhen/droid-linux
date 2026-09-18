@@ -67,6 +67,10 @@ provision_distro() {
         log_ok "Ubuntu rootfs ready."
     fi
 
+    # Fix broken shell in /etc/passwd first via proot-distro run
+    log_info "Verifying container shell integrity..."
+    proot-distro run "$DISTRO_NAME" -- /bin/sed -i 's|:/bin/zsh|:/bin/bash|g' /etc/passwd 2>/dev/null || true
+
     log_info "Configuring dev packages, shell & system inside Ubuntu..."
     
     local prov_b64
@@ -74,10 +78,10 @@ provision_distro() {
 #!/bin/bash
 export DEBIAN_FRONTEND=noninteractive
 
-# Reset root shell to bash if zsh was mistakenly set previously
-sed -i 's|:/bin/zsh|:/bin/bash|' /etc/passwd 2>/dev/null || true
+# Ensure root shell in /etc/passwd is /bin/bash for safety
+sed -i 's|:/bin/zsh|:/bin/bash|g' /etc/passwd 2>/dev/null || true
 
-# Preserve existing DNS if valid, otherwise fallback to 1.1.1.1
+# Preserve existing DNS if valid, otherwise fallback to 1.1.1.1 & 8.8.8.8
 if ! grep -q "nameserver" /etc/resolv.conf 2>/dev/null; then
     printf "nameserver 1.1.1.1\nnameserver 8.8.8.8\n" > /etc/resolv.conf 2>/dev/null || true
 fi
@@ -91,8 +95,8 @@ apt-get install -y zsh git curl wget python3 nano micro htop || true
 
 # Locales
 if command -v locale-gen >/dev/null 2>&1; then
-    locale-gen en_US.UTF-8 || true
-    update-locale LANG=en_US.UTF-8 || true
+    locale-gen en_US.UTF-8 2>/dev/null || true
+    update-locale LANG=en_US.UTF-8 2>/dev/null || true
 fi
 
 # Configure bashrc
@@ -133,15 +137,15 @@ if [ -z "$DROID_BANNER_PRINTED" ]; then
 fi
 ZSH_EOF
 
-# Only set default shell to zsh if zsh binary exists
+# If zsh is available, update shell in /etc/passwd
 if [ -x /bin/zsh ]; then
     chsh -s /bin/zsh root 2>/dev/null || true
 fi
 PROV_EOF
     )
 
-    # Run provisioner safely through /bin/bash
-    proot-distro login "$DISTRO_NAME" -- /bin/bash -c "echo '$prov_b64' | base64 -d | /bin/bash" || true
+    # Run provisioner safely using proot-distro run (bypasses login shell check)
+    proot-distro run "$DISTRO_NAME" -- /bin/bash -c "echo '$prov_b64' | base64 -d | /bin/bash" || true
     log_ok "Ubuntu environment provisioned with developer toolchain."
 }
 
@@ -160,7 +164,7 @@ DISTRO="ubuntu"
 
 case "${1:-shell}" in
     shell|"")
-        exec proot-distro login "$DISTRO" --user root --shared-tmp -- /bin/bash -c '
+        exec proot-distro run "$DISTRO" --user root --shared-tmp -- /bin/bash -c '
             if [ -x /bin/zsh ]; then
                 exec /bin/zsh -l
             else
@@ -170,7 +174,7 @@ case "${1:-shell}" in
         ;;
     gui|desktop)
         echo "Starting XFCE4 Desktop & TigerVNC..."
-        proot-distro login "$DISTRO" --user root --shared-tmp -- /bin/bash -c '
+        proot-distro run "$DISTRO" --user root --shared-tmp -- /bin/bash -c '
             if ! command -v vncserver >/dev/null 2>&1; then
                 echo "Installing XFCE4 & TigerVNC desktop packages (first run)..."
                 apt update -y && apt install -y xfce4 xfce4-terminal tigervnc-standalone-server dbus-x11
@@ -183,7 +187,7 @@ case "${1:-shell}" in
         ;;
     stop)
         echo "Stopping background services..."
-        proot-distro login "$DISTRO" --user root -- /bin/bash -c "vncserver -kill :1 2>/dev/null || true"
+        proot-distro run "$DISTRO" --user root -- /bin/bash -c "vncserver -kill :1 2>/dev/null || true"
         echo "✓ Services stopped."
         ;;
     reset)

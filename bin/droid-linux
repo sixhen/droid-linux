@@ -7,7 +7,7 @@ DISTRO="ubuntu"
 
 case "${1:-shell}" in
     shell|"")
-        exec proot-distro login "$DISTRO" --user root --shared-tmp -- /bin/bash -c '
+        exec proot-distro run "$DISTRO" --user root --shared-tmp -- /bin/bash -c '
             if [ -x /bin/zsh ]; then
                 exec /bin/zsh -l
             else
@@ -17,7 +17,7 @@ case "${1:-shell}" in
         ;;
     gui|desktop)
         echo "Starting XFCE4 Desktop & TigerVNC..."
-        proot-distro login "$DISTRO" --user root --shared-tmp -- /bin/bash -c '
+        proot-distro run "$DISTRO" --user root --shared-tmp -- /bin/bash -c '
             if ! command -v vncserver >/dev/null 2>&1; then
                 echo "Installing XFCE4 & TigerVNC desktop packages (first run)..."
                 apt update -y && apt install -y xfce4 xfce4-terminal tigervnc-standalone-server dbus-x11
@@ -30,7 +30,7 @@ case "${1:-shell}" in
         ;;
     stop)
         echo "Stopping background services..."
-        proot-distro login "$DISTRO" --user root -- /bin/bash -c "vncserver -kill :1 2>/dev/null || true"
+        proot-distro run "$DISTRO" --user root -- /bin/bash -c "vncserver -kill :1 2>/dev/null || true"
         echo "✓ Services stopped."
         ;;
     reset)
