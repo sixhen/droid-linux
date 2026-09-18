@@ -33,50 +33,6 @@ BANNER_EOF
     printf "${C_RESET}${C_GRAY}   Automated Linux Environment for Android · by sixhen${C_RESET}\n\n"
 }
 
-# If user runs directly inside the Ubuntu container
-run_inside_ubuntu() {
-    log_info "Detected execution inside Ubuntu container. Running direct provisioner..."
-    
-    # Patch DNS
-    echo "nameserver 1.1.1.1" > /etc/resolv.conf 2>/dev/null || true
-    echo "nameserver 8.8.8.8" >> /etc/resolv.conf 2>/dev/null || true
-    log_ok "DNS patched (1.1.1.1 / 8.8.8.8)."
-
-    # Packages
-    export DEBIAN_FRONTEND=noninteractive
-    log_info "Updating packages and installing developer tools..."
-    apt-get update -y || true
-    apt-get install -y --no-install-recommends \
-        git curl wget sudo zsh python3 python3-pip nodejs npm \
-        locales nano micro htop build-essential || true
-
-    # Locales
-    locale-gen en_US.UTF-8 || true
-    update-locale LANG=en_US.UTF-8 || true
-
-    # Zsh configuration
-    cat << 'ZSH_EOF' > /root/.zshrc
-export LANG=en_US.UTF-8
-export LC_ALL=en_US.UTF-8
-PROMPT='%F{cyan}droid-linux%f %F{green}%~%f %F{yellow}❯%f '
-
-alias ll='ls -lah --color=auto'
-alias update='apt update && apt upgrade -y'
-alias ports='ss -tulpn'
-alias cls='clear'
-alias py='python3'
-
-printf "\033[38;5;141mWelcome to droid-linux (Ubuntu LTS on Android)\033[0m\n"
-printf "\033[38;5;242mType 'update' to upgrade packages, or 'exit' to return to Termux.\033[0m\n\n"
-ZSH_EOF
-
-    chsh -s /bin/zsh root || true
-    log_ok "Zsh shell & developer toolchain configured!"
-    printf "\n${C_GREEN}${C_BOLD}✓ Cấu hình Ubuntu hoàn tất!${C_RESET}\n"
-    printf "Gõ ${C_BOLD}${C_BLUE}zsh${C_RESET} để bắt đầu dùng terminal Zsh hiện đại.\n"
-    printf "Gõ ${C_BOLD}${C_BLUE}exit${C_RESET} để quay lại màn hình Termux chính.\n\n"
-}
-
 check_environment() {
     local arch
     arch="$(uname -m)"
@@ -97,8 +53,7 @@ check_environment() {
 }
 
 install_dependencies() {
-    log_info "Updating Termux packages and installing PRoot..."
-    pkg update -y >/dev/null 2>&1 || true
+    log_info "Checking Termux core dependencies..."
     pkg install -y proot-distro curl tar pulseaudio >/dev/null 2>&1 || true
     log_ok "Core dependencies ready (proot-distro, curl, pulseaudio)."
 }
@@ -112,28 +67,54 @@ provision_distro() {
         log_ok "Ubuntu rootfs ready."
     fi
 
-    log_info "Configuring dev packages, DNS, locales and zsh shell inside Ubuntu..."
+    log_info "Configuring dev packages, shell & system inside Ubuntu..."
     
     local prov_b64
     prov_b64=$(base64 -w0 << 'PROV_EOF'
 #!/bin/bash
 export DEBIAN_FRONTEND=noninteractive
 
-# Patch DNS
-echo "nameserver 1.1.1.1" > /etc/resolv.conf 2>/dev/null || true
-echo "nameserver 8.8.8.8" >> /etc/resolv.conf 2>/dev/null || true
+# Reset root shell to bash if zsh was mistakenly set previously
+sed -i 's|:/bin/zsh|:/bin/bash|' /etc/passwd 2>/dev/null || true
+
+# Preserve existing DNS if valid, otherwise fallback to 1.1.1.1
+if ! grep -q "nameserver" /etc/resolv.conf 2>/dev/null; then
+    printf "nameserver 1.1.1.1\nnameserver 8.8.8.8\n" > /etc/resolv.conf 2>/dev/null || true
+fi
 
 # Update and install dev tools
-apt-get update -y >/dev/null 2>&1 || true
+apt-get update -y
 apt-get install -y --no-install-recommends \
-    git curl wget sudo zsh python3 python3-pip nodejs npm \
-    locales nano micro htop build-essential >/dev/null 2>&1 || true
+    zsh git curl wget sudo python3 python3-pip nodejs npm \
+    locales nano micro htop build-essential || \
+apt-get install -y zsh git curl wget python3 nano micro htop || true
 
 # Locales
-locale-gen en_US.UTF-8 || true
-update-locale LANG=en_US.UTF-8 || true
+if command -v locale-gen >/dev/null 2>&1; then
+    locale-gen en_US.UTF-8 || true
+    update-locale LANG=en_US.UTF-8 || true
+fi
 
-# Zsh profile
+# Configure bashrc
+cat << 'BASHRC_EOF' > /root/.bashrc
+export LANG=en_US.UTF-8
+export LC_ALL=en_US.UTF-8
+PS1='\[\033[38;5;39m\]droid-linux\[\033[0m\] \[\033[38;5;48m\]\w\[\033[0m\] \[\033[38;5;220m\]❯\[\033[0m\] '
+
+alias ll='ls -lah --color=auto'
+alias update='apt update && apt upgrade -y'
+alias ports='ss -tulpn'
+alias cls='clear'
+alias py='python3'
+
+if [ -z "$DROID_BANNER_PRINTED" ]; then
+    export DROID_BANNER_PRINTED=1
+    printf "\033[38;5;141mWelcome to droid-linux (Ubuntu LTS on Android)\033[0m\n"
+    printf "\033[38;5;242mType 'update' to upgrade packages, or 'exit' to return to Termux.\033[0m\n\n"
+fi
+BASHRC_EOF
+
+# Configure zshrc
 cat << 'ZSH_EOF' > /root/.zshrc
 export LANG=en_US.UTF-8
 export LC_ALL=en_US.UTF-8
@@ -145,15 +126,22 @@ alias ports='ss -tulpn'
 alias cls='clear'
 alias py='python3'
 
-printf "\033[38;5;141mWelcome to droid-linux (Ubuntu LTS on Android)\033[0m\n"
-printf "\033[38;5;242mType 'update' to upgrade packages, or 'exit' to return to Termux.\033[0m\n\n"
+if [ -z "$DROID_BANNER_PRINTED" ]; then
+    export DROID_BANNER_PRINTED=1
+    printf "\033[38;5;141mWelcome to droid-linux (Ubuntu LTS on Android)\033[0m\n"
+    printf "\033[38;5;242mType 'update' to upgrade packages, or 'exit' to return to Termux.\033[0m\n\n"
+fi
 ZSH_EOF
 
-chsh -s /bin/zsh root || true
+# Only set default shell to zsh if zsh binary exists
+if [ -x /bin/zsh ]; then
+    chsh -s /bin/zsh root 2>/dev/null || true
+fi
 PROV_EOF
     )
 
-    proot-distro login "$DISTRO_NAME" -- bash -c "echo '$prov_b64' | base64 -d | bash" || true
+    # Run provisioner safely through /bin/bash
+    proot-distro login "$DISTRO_NAME" -- /bin/bash -c "echo '$prov_b64' | base64 -d | /bin/bash" || true
     log_ok "Ubuntu environment provisioned with developer toolchain."
 }
 
@@ -172,7 +160,13 @@ DISTRO="ubuntu"
 
 case "${1:-shell}" in
     shell|"")
-        exec proot-distro login "$DISTRO" --user root --shared-tmp
+        exec proot-distro login "$DISTRO" --user root --shared-tmp -- /bin/bash -c '
+            if [ -x /bin/zsh ]; then
+                exec /bin/zsh -l
+            else
+                exec /bin/bash -l
+            fi
+        '
         ;;
     gui|desktop)
         echo "Starting XFCE4 Desktop & TigerVNC..."
@@ -228,13 +222,6 @@ LAUNCHER_EOF
 
 main() {
     banner
-
-    # Check if running inside container
-    if [[ -f "/etc/debian_version" && ! -d "/data/data/com.termux" ]]; then
-        run_inside_ubuntu
-        exit 0
-    fi
-
     check_environment
     install_dependencies
     provision_distro

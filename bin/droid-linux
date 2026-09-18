@@ -7,7 +7,13 @@ DISTRO="ubuntu"
 
 case "${1:-shell}" in
     shell|"")
-        exec proot-distro login "$DISTRO" --user root --shared-tmp
+        exec proot-distro login "$DISTRO" --user root --shared-tmp -- /bin/bash -c '
+            if [ -x /bin/zsh ]; then
+                exec /bin/zsh -l
+            else
+                exec /bin/bash -l
+            fi
+        '
         ;;
     gui|desktop)
         echo "Starting XFCE4 Desktop & TigerVNC..."
