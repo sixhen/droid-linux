@@ -18,14 +18,29 @@ case "${1:-shell}" in
     gui|desktop)
         echo "Starting XFCE4 Desktop & TigerVNC..."
         proot-distro run "$DISTRO" --user root --shared-tmp -- /bin/bash -c '
+            export DEBIAN_FRONTEND=noninteractive
             if ! command -v vncserver >/dev/null 2>&1; then
                 echo "Installing XFCE4 & TigerVNC desktop packages (first run)..."
                 apt update -y && apt install -y xfce4 xfce4-terminal tigervnc-standalone-server dbus-x11
             fi
+            mkdir -p /root/.vnc
+            cat << "XEOF" > /root/.vnc/xstartup
+#!/bin/bash
+unset SESSION_MANAGER
+unset DBUS_SESSION_BUS_ADDRESS
+export DISPLAY=:1
+exec startxfce4
+XEOF
+            chmod +x /root/.vnc/xstartup
+            if [ ! -f /root/.vnc/passwd ]; then
+                printf "123456\n123456\nn\n" | vncpasswd 2>/dev/null || true
+                chmod 600 /root/.vnc/passwd 2>/dev/null || true
+            fi
             vncserver -kill :1 >/dev/null 2>&1 || true
             vncserver :1 -geometry 1280x720 -depth 24
             echo "✓ VNC Server running at localhost:5901 (Display :1)"
-            echo "Connect using any VNC Viewer app (address: 127.0.0.1:5901)"
+            echo "Mật khẩu VNC mặc định: 123456"
+            echo "Connect using AVNC or VNC Viewer (address: 127.0.0.1:5901)"
         '
         ;;
     stop)
