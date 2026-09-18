@@ -11,11 +11,16 @@ Copy, paste, and your full Linux workstation is ready in seconds.
 
 ## ⚡ 1-Line Quick Install
 
-Open **Termux** on your phone and paste this single command:
+Open **Termux** on your phone and paste this command:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/sixhen/droid-linux/main/setup.sh | bash
 ```
+
+> **Tip for fresh Termux**: If `curl` is not installed yet on your phone, run:
+> ```bash
+> pkg install -y curl && curl -fsSL https://raw.githubusercontent.com/sixhen/droid-linux/main/setup.sh | bash
+> ```
 
 Everything (PRoot, Ubuntu LTS rootfs, DNS patches, developer toolchain, and Zsh shell) is configured automatically without root permissions.
 
