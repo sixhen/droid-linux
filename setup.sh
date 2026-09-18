@@ -33,11 +33,51 @@ BANNER_EOF
     printf "${C_RESET}${C_GRAY}   Automated Linux Environment for Android · by sixhen${C_RESET}\n\n"
 }
 
-check_environment() {
-    if [[ ! -d "/data/data/com.termux" ]]; then
-        log_warn "Notice: This script is optimized for Termux on Android."
-    fi
+# If user runs directly inside the Ubuntu container
+run_inside_ubuntu() {
+    log_info "Detected execution inside Ubuntu container. Running direct provisioner..."
+    
+    # Patch DNS
+    echo "nameserver 1.1.1.1" > /etc/resolv.conf 2>/dev/null || true
+    echo "nameserver 8.8.8.8" >> /etc/resolv.conf 2>/dev/null || true
+    log_ok "DNS patched (1.1.1.1 / 8.8.8.8)."
 
+    # Packages
+    export DEBIAN_FRONTEND=noninteractive
+    log_info "Updating packages and installing developer tools..."
+    apt-get update -y || true
+    apt-get install -y --no-install-recommends \
+        git curl wget sudo zsh python3 python3-pip nodejs npm \
+        locales nano micro htop build-essential || true
+
+    # Locales
+    locale-gen en_US.UTF-8 || true
+    update-locale LANG=en_US.UTF-8 || true
+
+    # Zsh configuration
+    cat << 'ZSH_EOF' > /root/.zshrc
+export LANG=en_US.UTF-8
+export LC_ALL=en_US.UTF-8
+PROMPT='%F{cyan}droid-linux%f %F{green}%~%f %F{yellow}❯%f '
+
+alias ll='ls -lah --color=auto'
+alias update='apt update && apt upgrade -y'
+alias ports='ss -tulpn'
+alias cls='clear'
+alias py='python3'
+
+printf "\033[38;5;141mWelcome to droid-linux (Ubuntu LTS on Android)\033[0m\n"
+printf "\033[38;5;242mType 'update' to upgrade packages, or 'exit' to return to Termux.\033[0m\n\n"
+ZSH_EOF
+
+    chsh -s /bin/zsh root || true
+    log_ok "Zsh shell & developer toolchain configured!"
+    printf "\n${C_GREEN}${C_BOLD}✓ Cấu hình Ubuntu hoàn tất!${C_RESET}\n"
+    printf "Gõ ${C_BOLD}${C_BLUE}zsh${C_RESET} để bắt đầu dùng terminal Zsh hiện đại.\n"
+    printf "Gõ ${C_BOLD}${C_BLUE}exit${C_RESET} để quay lại màn hình Termux chính.\n\n"
+}
+
+check_environment() {
     local arch
     arch="$(uname -m)"
     case "$arch" in
@@ -59,32 +99,42 @@ check_environment() {
 install_dependencies() {
     log_info "Updating Termux packages and installing PRoot..."
     pkg update -y >/dev/null 2>&1 || true
-    pkg install -y proot-distro curl tar pulseaudio >/dev/null 2>&1
-    log_ok "Core dependencies installed (proot-distro, curl, pulseaudio)."
+    pkg install -y proot-distro curl tar pulseaudio >/dev/null 2>&1 || true
+    log_ok "Core dependencies ready (proot-distro, curl, pulseaudio)."
 }
 
 provision_distro() {
-    local termux_prefix="${PREFIX:-/data/data/com.termux/files/usr}"
-    local rootfs_dir="$termux_prefix/var/lib/proot-distro/installed-rootfs/$DISTRO_NAME"
-
-    if [[ -d "$rootfs_dir" ]] || (proot-distro list 2>/dev/null | grep -i -q "$DISTRO_NAME.*installed"); then
-        log_warn "Container '$DISTRO_NAME' đã có sẵn trên máy. Đang áp dụng cấu hình tối ưu..."
+    if proot-distro list 2>/dev/null | grep -i -q "$DISTRO_NAME.*installed"; then
+        log_warn "Container '$DISTRO_NAME' đã có sẵn trên máy. Đang đồng bộ công cụ & cấu hình..."
     else
         log_info "Downloading and installing official Ubuntu LTS rootfs..."
         proot-distro install "$DISTRO_NAME" || true
-        log_ok "Ubuntu rootfs successfully extracted."
+        log_ok "Ubuntu rootfs ready."
     fi
 
-    # Fix DNS resolution
-    local resolv_conf="$rootfs_dir/etc/resolv.conf"
-    if [[ -d "$rootfs_dir/etc" ]]; then
-        printf "nameserver 1.1.1.1\nnameserver 8.8.8.8\n" > "$resolv_conf" 2>/dev/null || true
-        log_ok "Patched DNS resolution (Cloudflare & Google DNS)."
-    fi
+    log_info "Configuring dev packages, DNS, locales and zsh shell inside Ubuntu..."
+    
+    local prov_b64
+    prov_b64=$(base64 -w0 << 'PROV_EOF'
+#!/bin/bash
+export DEBIAN_FRONTEND=noninteractive
 
-    # Create root .zshrc
-    if [[ -d "$rootfs_dir/root" ]]; then
-        cat << 'ZSH_EOF' > "$rootfs_dir/root/.zshrc"
+# Patch DNS
+echo "nameserver 1.1.1.1" > /etc/resolv.conf 2>/dev/null || true
+echo "nameserver 8.8.8.8" >> /etc/resolv.conf 2>/dev/null || true
+
+# Update and install dev tools
+apt-get update -y >/dev/null 2>&1 || true
+apt-get install -y --no-install-recommends \
+    git curl wget sudo zsh python3 python3-pip nodejs npm \
+    locales nano micro htop build-essential >/dev/null 2>&1 || true
+
+# Locales
+locale-gen en_US.UTF-8 || true
+update-locale LANG=en_US.UTF-8 || true
+
+# Zsh profile
+cat << 'ZSH_EOF' > /root/.zshrc
 export LANG=en_US.UTF-8
 export LC_ALL=en_US.UTF-8
 PROMPT='%F{cyan}droid-linux%f %F{green}%~%f %F{yellow}❯%f '
@@ -98,29 +148,12 @@ alias py='python3'
 printf "\033[38;5;141mWelcome to droid-linux (Ubuntu LTS on Android)\033[0m\n"
 printf "\033[38;5;242mType 'update' to upgrade packages, or 'exit' to return to Termux.\033[0m\n\n"
 ZSH_EOF
-        log_ok "Configured customized Zsh profile."
-    fi
 
-    # Write provisioning script into rootfs /tmp
-    local prov_script="$rootfs_dir/tmp/droid-provision.sh"
-    cat << 'PROV_EOF' > "$prov_script"
-#!/bin/bash
-set -e
-export DEBIAN_FRONTEND=noninteractive
-apt-get update -y >/dev/null 2>&1
-apt-get install -y --no-install-recommends \
-    git curl wget sudo zsh python3 python3-pip nodejs npm \
-    locales nano micro htop build-essential >/dev/null 2>&1
-
-locale-gen en_US.UTF-8 >/dev/null 2>&1 || true
-update-locale LANG=en_US.UTF-8 >/dev/null 2>&1 || true
-chsh -s /bin/zsh root >/dev/null 2>&1 || true
+chsh -s /bin/zsh root || true
 PROV_EOF
-    chmod +x "$prov_script"
+    )
 
-    log_info "Configuring dev packages, locales and dev tools inside Ubuntu (this takes 1-2 minutes)..."
-    proot-distro login "$DISTRO_NAME" -- bash /tmp/droid-provision.sh || true
-    rm -f "$prov_script"
+    proot-distro login "$DISTRO_NAME" -- bash -c "echo '$prov_b64' | base64 -d | bash" || true
     log_ok "Ubuntu environment provisioned with developer toolchain."
 }
 
@@ -129,7 +162,8 @@ install_launcher() {
     local bin_path="$termux_prefix/bin/droid-linux"
     log_info "Installing global CLI launcher to $bin_path..."
 
-    cat << 'LAUNCHER_EOF' > "$bin_path"
+    local launcher_b64
+    launcher_b64=$(base64 -w0 << 'LAUNCHER_EOF'
 #!/usr/bin/env bash
 # droid-linux CLI launcher
 set -e
@@ -182,6 +216,9 @@ case "${1:-shell}" in
         ;;
 esac
 LAUNCHER_EOF
+    )
+
+    echo "$launcher_b64" | base64 -d > "$bin_path"
     chmod +x "$bin_path"
     
     # Symlink for ultra-short command: dlinux
@@ -191,6 +228,13 @@ LAUNCHER_EOF
 
 main() {
     banner
+
+    # Check if running inside container
+    if [[ -f "/etc/debian_version" && ! -d "/data/data/com.termux" ]]; then
+        run_inside_ubuntu
+        exit 0
+    fi
+
     check_environment
     install_dependencies
     provision_distro
