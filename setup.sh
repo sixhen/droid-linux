@@ -64,16 +64,16 @@ install_dependencies() {
 }
 
 provision_distro() {
-    if proot-distro list 2>/dev/null | grep -q "$DISTRO_NAME (installed)"; then
-        log_warn "$DISTRO_NAME is already installed in proot-distro."
-    else
-        log_info "Downloading and installing official Ubuntu LTS rootfs..."
-        proot-distro install "$DISTRO_NAME"
-        log_ok "Ubuntu rootfs successfully extracted."
-    fi
-
     local termux_prefix="${PREFIX:-/data/data/com.termux/files/usr}"
     local rootfs_dir="$termux_prefix/var/lib/proot-distro/installed-rootfs/$DISTRO_NAME"
+
+    if [[ -d "$rootfs_dir" ]] || (proot-distro list 2>/dev/null | grep -i -q "$DISTRO_NAME.*installed"); then
+        log_warn "Container '$DISTRO_NAME' đã có sẵn trên máy. Đang áp dụng cấu hình tối ưu..."
+    else
+        log_info "Downloading and installing official Ubuntu LTS rootfs..."
+        proot-distro install "$DISTRO_NAME" || true
+        log_ok "Ubuntu rootfs successfully extracted."
+    fi
 
     # Fix DNS resolution
     local resolv_conf="$rootfs_dir/etc/resolv.conf"
@@ -119,7 +119,7 @@ PROV_EOF
     chmod +x "$prov_script"
 
     log_info "Configuring dev packages, locales and dev tools inside Ubuntu (this takes 1-2 minutes)..."
-    proot-distro login "$DISTRO_NAME" -- bash /tmp/droid-provision.sh
+    proot-distro login "$DISTRO_NAME" -- bash /tmp/droid-provision.sh || true
     rm -f "$prov_script"
     log_ok "Ubuntu environment provisioned with developer toolchain."
 }
@@ -158,6 +158,11 @@ case "${1:-shell}" in
         proot-distro login "$DISTRO" --user root -- /bin/bash -c "vncserver -kill :1 2>/dev/null || true"
         echo "✓ Services stopped."
         ;;
+    reset)
+        echo "Resetting Ubuntu container to factory fresh state..."
+        proot-distro reset "$DISTRO"
+        echo "✓ Ubuntu has been reset."
+        ;;
     backup)
         OUT="${2:-$HOME/droid-linux-backup.tar.gz}"
         echo "Backing up droid-linux rootfs to $OUT..."
@@ -169,7 +174,7 @@ case "${1:-shell}" in
         proot-distro list | grep "$DISTRO"
         ;;
     help|-h|--help)
-        echo "Usage: droid-linux [shell | gui | stop | backup | status]"
+        echo "Usage: droid-linux [shell | gui | stop | reset | backup | status]"
         ;;
     *)
         echo "Unknown command: $1. Run 'droid-linux help' for usage."

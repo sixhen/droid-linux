@@ -11,21 +11,26 @@ case "${1:-shell}" in
         ;;
     gui|desktop)
         echo "Starting XFCE4 Desktop & TigerVNC..."
-        proot-distro login "$DISTRO" --user root --shared-tmp -- bash -c "
+        proot-distro login "$DISTRO" --user root --shared-tmp -- /bin/bash -c '
             if ! command -v vncserver >/dev/null 2>&1; then
-                echo 'Installing XFCE4 & TigerVNC desktop packages (first run)...'
+                echo "Installing XFCE4 & TigerVNC desktop packages (first run)..."
                 apt update -y && apt install -y xfce4 xfce4-terminal tigervnc-standalone-server dbus-x11
             fi
             vncserver -kill :1 >/dev/null 2>&1 || true
             vncserver :1 -geometry 1280x720 -depth 24
-            echo '✓ VNC Server running at localhost:5901 (Display :1)'
-            echo 'Connect using any VNC Viewer app (address: 127.0.0.1:5901)'
-        "
+            echo "✓ VNC Server running at localhost:5901 (Display :1)"
+            echo "Connect using any VNC Viewer app (address: 127.0.0.1:5901)"
+        '
         ;;
     stop)
         echo "Stopping background services..."
-        proot-distro login "$DISTRO" --user root -- bash -c "vncserver -kill :1 2>/dev/null || true"
+        proot-distro login "$DISTRO" --user root -- /bin/bash -c "vncserver -kill :1 2>/dev/null || true"
         echo "✓ Services stopped."
+        ;;
+    reset)
+        echo "Resetting Ubuntu container to factory fresh state..."
+        proot-distro reset "$DISTRO"
+        echo "✓ Ubuntu has been reset."
         ;;
     backup)
         OUT="${2:-$HOME/droid-linux-backup.tar.gz}"
@@ -38,7 +43,7 @@ case "${1:-shell}" in
         proot-distro list | grep "$DISTRO"
         ;;
     help|-h|--help)
-        echo "Usage: droid-linux [shell | gui | stop | backup | status]"
+        echo "Usage: droid-linux [shell | gui | stop | reset | backup | status]"
         ;;
     *)
         echo "Unknown command: $1. Run 'droid-linux help' for usage."
