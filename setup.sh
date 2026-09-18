@@ -64,7 +64,7 @@ install_dependencies() {
 }
 
 provision_distro() {
-    if proot-distro list | grep -q "$DISTRO_NAME (installed)"; then
+    if proot-distro list 2>/dev/null | grep -q "$DISTRO_NAME (installed)"; then
         log_warn "$DISTRO_NAME is already installed in proot-distro."
     else
         log_info "Downloading and installing official Ubuntu LTS rootfs..."
@@ -72,29 +72,19 @@ provision_distro() {
         log_ok "Ubuntu rootfs successfully extracted."
     fi
 
+    local termux_prefix="${PREFIX:-/data/data/com.termux/files/usr}"
+    local rootfs_dir="$termux_prefix/var/lib/proot-distro/installed-rootfs/$DISTRO_NAME"
+
     # Fix DNS resolution
-    local resolv_conf="/data/data/com.termux/files/usr/var/lib/proot-distro/installed-rootfs/$DISTRO_NAME/etc/resolv.conf"
-    if [[ -f "$resolv_conf" ]]; then
-        printf "nameserver 1.1.1.1\nnameserver 8.8.8.8\n" > "$resolv_conf"
+    local resolv_conf="$rootfs_dir/etc/resolv.conf"
+    if [[ -d "$rootfs_dir/etc" ]]; then
+        printf "nameserver 1.1.1.1\nnameserver 8.8.8.8\n" > "$resolv_conf" 2>/dev/null || true
         log_ok "Patched DNS resolution (Cloudflare & Google DNS)."
     fi
 
-    # Run internal provisioner
-    log_info "Configuring dev packages, locales and zsh shell inside Ubuntu..."
-    proot-distro login "$DISTRO_NAME" -- bash -c "
-        export DEBIAN_FRONTEND=noninteractive
-        apt-get update -y >/dev/null 2>&1
-        apt-get install -y --no-install-recommends \
-            git curl wget sudo zsh python3 python3-pip nodejs npm \
-            locales nano micro htop build-essential >/dev/null 2>&1
-
-        # Setup locale
-        locale-gen en_US.UTF-8 >/dev/null 2>&1 || true
-        update-locale LANG=en_US.UTF-8 >/dev/null 2>&1 || true
-
-        # Setup clean zsh profile for root
-        if [[ ! -f /root/.zshrc ]]; then
-            cat << 'EOZSH' > /root/.zshrc
+    # Create root .zshrc
+    if [[ -d "$rootfs_dir/root" ]]; then
+        cat << 'ZSH_EOF' > "$rootfs_dir/root/.zshrc"
 export LANG=en_US.UTF-8
 export LC_ALL=en_US.UTF-8
 PROMPT='%F{cyan}droid-linux%f %F{green}%~%f %F{yellow}❯%f '
@@ -107,18 +97,39 @@ alias py='python3'
 
 printf "\033[38;5;141mWelcome to droid-linux (Ubuntu LTS on Android)\033[0m\n"
 printf "\033[38;5;242mType 'update' to upgrade packages, or 'exit' to return to Termux.\033[0m\n\n"
-EOZSH
-            chsh -s /bin/zsh root >/dev/null 2>&1 || true
-        fi
-    "
+ZSH_EOF
+        log_ok "Configured customized Zsh profile."
+    fi
+
+    # Write provisioning script into rootfs /tmp
+    local prov_script="$rootfs_dir/tmp/droid-provision.sh"
+    cat << 'PROV_EOF' > "$prov_script"
+#!/bin/bash
+set -e
+export DEBIAN_FRONTEND=noninteractive
+apt-get update -y >/dev/null 2>&1
+apt-get install -y --no-install-recommends \
+    git curl wget sudo zsh python3 python3-pip nodejs npm \
+    locales nano micro htop build-essential >/dev/null 2>&1
+
+locale-gen en_US.UTF-8 >/dev/null 2>&1 || true
+update-locale LANG=en_US.UTF-8 >/dev/null 2>&1 || true
+chsh -s /bin/zsh root >/dev/null 2>&1 || true
+PROV_EOF
+    chmod +x "$prov_script"
+
+    log_info "Configuring dev packages, locales and dev tools inside Ubuntu (this takes 1-2 minutes)..."
+    proot-distro login "$DISTRO_NAME" -- bash /tmp/droid-provision.sh
+    rm -f "$prov_script"
     log_ok "Ubuntu environment provisioned with developer toolchain."
 }
 
 install_launcher() {
-    local bin_path="$PREFIX/bin/droid-linux"
+    local termux_prefix="${PREFIX:-/data/data/com.termux/files/usr}"
+    local bin_path="$termux_prefix/bin/droid-linux"
     log_info "Installing global CLI launcher to $bin_path..."
 
-    cat << "LAUNCHER_EOF" > "$bin_path"
+    cat << 'LAUNCHER_EOF' > "$bin_path"
 #!/usr/bin/env bash
 # droid-linux CLI launcher
 set -e
@@ -131,20 +142,20 @@ case "${1:-shell}" in
         ;;
     gui|desktop)
         echo "Starting XFCE4 Desktop & TigerVNC..."
-        proot-distro login "$DISTRO" --user root --shared-tmp -- bash -c "
+        proot-distro login "$DISTRO" --user root --shared-tmp -- /bin/bash -c '
             if ! command -v vncserver >/dev/null 2>&1; then
-                echo 'Installing XFCE4 & TigerVNC desktop packages (first run)...'
+                echo "Installing XFCE4 & TigerVNC desktop packages (first run)..."
                 apt update -y && apt install -y xfce4 xfce4-terminal tigervnc-standalone-server dbus-x11
             fi
             vncserver -kill :1 >/dev/null 2>&1 || true
             vncserver :1 -geometry 1280x720 -depth 24
-            echo '✓ VNC Server running at localhost:5901 (Display :1)'
-            echo 'Connect using any VNC Viewer app (address: 127.0.0.1:5901)'
-        "
+            echo "✓ VNC Server running at localhost:5901 (Display :1)"
+            echo "Connect using any VNC Viewer app (address: 127.0.0.1:5901)"
+        '
         ;;
     stop)
         echo "Stopping background services..."
-        proot-distro login "$DISTRO" --user root -- bash -c "vncserver -kill :1 2>/dev/null || true"
+        proot-distro login "$DISTRO" --user root -- /bin/bash -c "vncserver -kill :1 2>/dev/null || true"
         echo "✓ Services stopped."
         ;;
     backup)
@@ -169,7 +180,7 @@ LAUNCHER_EOF
     chmod +x "$bin_path"
     
     # Symlink for ultra-short command: dlinux
-    ln -sf "$bin_path" "$PREFIX/bin/dlinux"
+    ln -sf "$bin_path" "$termux_prefix/bin/dlinux"
     log_ok "Global launcher created: 'droid-linux' & 'dlinux'"
 }
 
