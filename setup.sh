@@ -93,16 +93,14 @@ apt-get install -y --no-install-recommends \
     locales nano micro htop build-essential || \
 apt-get install -y zsh git curl wget python3 nano micro htop || true
 
-# Locales
-if command -v locale-gen >/dev/null 2>&1; then
-    locale-gen en_US.UTF-8 2>/dev/null || true
-    update-locale LANG=en_US.UTF-8 2>/dev/null || true
-fi
+# Locales & environment
+export LANG=C.UTF-8
+export LC_ALL=C.UTF-8
 
 # Configure bashrc
 cat << 'BASHRC_EOF' > /root/.bashrc
-export LANG=en_US.UTF-8
-export LC_ALL=en_US.UTF-8
+export LANG=C.UTF-8
+export LC_ALL=C.UTF-8
 PS1='\[\033[38;5;39m\]droid-linux\[\033[0m\] \[\033[38;5;48m\]\w\[\033[0m\] \[\033[38;5;220m\]❯\[\033[0m\] '
 
 alias ll='ls -lah --color=auto'
@@ -120,8 +118,8 @@ BASHRC_EOF
 
 # Configure zshrc
 cat << 'ZSH_EOF' > /root/.zshrc
-export LANG=en_US.UTF-8
-export LC_ALL=en_US.UTF-8
+export LANG=C.UTF-8
+export LC_ALL=C.UTF-8
 PROMPT='%F{cyan}droid-linux%f %F{green}%~%f %F{yellow}❯%f '
 
 alias ll='ls -lah --color=auto'
