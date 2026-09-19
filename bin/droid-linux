@@ -1,53 +1,96 @@
 #!/usr/bin/env bash
-# droid-linux - CLI launcher
+# sixhen OS (droid-linux) - Dedicated Linux for sixhen
 # Author: sixhen <dmh190229@gmail.com>
 set -e
 
 DISTRO="ubuntu"
 
-# If already executed inside the Ubuntu container
-if [ -f "/etc/debian_version" ] && [ ! -d "/data/data/com.termux" ]; then
-    case "${1:-shell}" in
-        gui|desktop)
-            echo "Starting XFCE4 Desktop & TigerVNC..."
-            export DEBIAN_FRONTEND=noninteractive
-            if ! command -v vncserver >/dev/null 2>&1; then
-                echo "Installing XFCE4 & TigerVNC desktop packages (first run)..."
-                apt update -y && apt install -y xfce4 xfce4-terminal tigervnc-standalone-server dbus-x11
-            fi
-            mkdir -p /root/.vnc
-            cat << "XEOF" > /root/.vnc/xstartup
+# Function to launch VNC safely inside Ubuntu
+start_vnc_core() {
+    echo ":: Khởi động giao diện đồ họa XFCE4 & VNC Server..."
+    export DEBIAN_FRONTEND=noninteractive
+    export LANG=C.UTF-8
+    export LC_ALL=C.UTF-8
+
+    # Ensure desktop and VNC packages exist
+    if ! command -v vncserver >/dev/null 2>&1 || ! command -v startxfce4 >/dev/null 2>&1; then
+        echo ":: Cài đặt XFCE4 Desktop & TigerVNC Server (lần đầu)..."
+        apt update -y
+        apt install -y xfce4 xfce4-terminal tigervnc-standalone-server dbus-x11 x11-xserver-utils
+    fi
+
+    # Fix X11 unix socket directory (Crucial for PRoot)
+    mkdir -p /tmp/.X11-unix
+    chmod 1777 /tmp/.X11-unix
+    rm -f /tmp/.X1-lock /tmp/.X11-unix/X1
+
+    # Configure xstartup in both legacy and modern TigerVNC locations
+    mkdir -p /root/.vnc /root/.config/tigervnc
+    cat << "XEOF" > /root/.vnc/xstartup
 #!/bin/bash
 unset SESSION_MANAGER
 unset DBUS_SESSION_BUS_ADDRESS
 export DISPLAY=:1
-exec startxfce4
+export LANG=C.UTF-8
+export LC_ALL=C.UTF-8
+export XDG_CURRENT_DESKTOP="XFCE"
+export XDG_SESSION_TYPE="x11"
+exec dbus-launch --exit-with-session startxfce4
 XEOF
-            chmod +x /root/.vnc/xstartup
-            if [ ! -f /root/.vnc/passwd ]; then
-                printf "123456\n123456\nn\n" | vncpasswd 2>/dev/null || true
-                chmod 600 /root/.vnc/passwd 2>/dev/null || true
-            fi
-            vncserver -kill :1 >/dev/null 2>&1 || true
-            vncserver :1 -geometry 1280x720 -depth 24
-            echo "✓ VNC Server running at localhost:5901 (Display :1)"
-            echo "Mật khẩu VNC mặc định: 123456"
-            echo "Connect using AVNC or VNC Viewer (address: 127.0.0.1:5901)"
+    chmod 755 /root/.vnc/xstartup
+    cp -f /root/.vnc/xstartup /root/.config/tigervnc/xstartup
+
+    # Configure VNC password (default: 123456)
+    if [ ! -f /root/.vnc/passwd ]; then
+        printf "123456\n123456\nn\n" | vncpasswd 2>/dev/null || true
+        chmod 600 /root/.vnc/passwd 2>/dev/null || true
+    fi
+    cp -f /root/.vnc/passwd /root/.config/tigervnc/passwd 2>/dev/null || true
+
+    # Kill old instances and start fresh
+    vncserver -kill :1 >/dev/null 2>&1 || true
+    rm -f /tmp/.X1-lock /tmp/.X11-unix/X1 2>/dev/null || true
+
+    vncserver :1 -geometry 1280x720 -depth 24 -localhost no -SecurityTypes VncAuth 2>&1
+
+    sleep 2
+    echo ""
+    echo "========================================================="
+    echo "  ✓ MÀN HÌNH ĐÃ KHỞI CHẠY THÀNH CÔNG!"
+    echo "  - Địa chỉ IP:   127.0.0.1  (hoặc localhost)"
+    echo "  - Cổng (Port):  5901"
+    echo "  - Mật khẩu VNC: 123456"
+    echo "========================================================="
+    echo "Mở ứng dụng AVNC hoặc RealVNC Viewer trên điện thoại để xem!"
+    echo ""
+}
+
+# Function to stop VNC
+stop_vnc_core() {
+    vncserver -kill :1 >/dev/null 2>&1 || true
+    rm -f /tmp/.X1-lock /tmp/.X11-unix/X1 2>/dev/null || true
+    echo "✓ Đã dừng toàn bộ dịch vụ đồ họa VNC."
+}
+
+# Check if already executed INSIDE the Ubuntu container
+if [ -f "/etc/debian_version" ] && [ ! -d "/data/data/com.termux" ]; then
+    case "${1:-shell}" in
+        gui|desktop)
+            start_vnc_core
             exit 0
             ;;
         stop)
-            vncserver -kill :1 2>/dev/null || true
-            echo "✓ Services stopped."
+            stop_vnc_core
             exit 0
             ;;
         *)
-            echo "You are already inside droid-linux container!"
+            echo "Bạn đang ở bên trong sixhen OS!"
             exit 0
             ;;
     esac
 fi
 
-# Executed from Termux host
+# Executed from Termux Host
 case "${1:-shell}" in
     shell|"")
         exec proot-distro run "$DISTRO" --user root --shared-tmp -- /bin/bash -c '
@@ -64,58 +107,38 @@ case "${1:-shell}" in
         '
         ;;
     gui|desktop)
-        echo "Starting XFCE4 Desktop & TigerVNC..."
-        proot-distro run "$DISTRO" --user root --shared-tmp -- /bin/bash -c '
-            export DEBIAN_FRONTEND=noninteractive
-            if ! command -v vncserver >/dev/null 2>&1; then
-                echo "Installing XFCE4 & TigerVNC desktop packages (first run)..."
-                apt update -y && apt install -y xfce4 xfce4-terminal tigervnc-standalone-server dbus-x11
-            fi
-            mkdir -p /root/.vnc
-            cat << "XEOF" > /root/.vnc/xstartup
-#!/bin/bash
-unset SESSION_MANAGER
-unset DBUS_SESSION_BUS_ADDRESS
-export DISPLAY=:1
-exec startxfce4
-XEOF
-            chmod +x /root/.vnc/xstartup
-            if [ ! -f /root/.vnc/passwd ]; then
-                printf "123456\n123456\nn\n" | vncpasswd 2>/dev/null || true
-                chmod 600 /root/.vnc/passwd 2>/dev/null || true
-            fi
-            vncserver -kill :1 >/dev/null 2>&1 || true
-            vncserver :1 -geometry 1280x720 -depth 24
-            echo "✓ VNC Server running at localhost:5901 (Display :1)"
-            echo "Mật khẩu VNC mặc định: 123456"
-            echo "Connect using AVNC or VNC Viewer (address: 127.0.0.1:5901)"
-        '
+        proot-distro run "$DISTRO" --user root --shared-tmp -- /bin/bash -c "
+            $(declare -f start_vnc_core)
+            start_vnc_core
+        "
         ;;
     stop)
-        echo "Stopping background services..."
-        proot-distro run "$DISTRO" --user root -- /bin/bash -c "vncserver -kill :1 2>/dev/null || true"
-        echo "✓ Services stopped."
+        proot-distro run "$DISTRO" --user root --shared-tmp -- /bin/bash -c "
+            $(declare -f stop_vnc_core)
+            stop_vnc_core
+        "
         ;;
     reset)
-        echo "Resetting Ubuntu container to factory fresh state..."
+        echo ":: Đang khôi phục sixhen OS về trạng thái xuất xưởng..."
         proot-distro reset "$DISTRO"
-        echo "✓ Ubuntu has been reset."
+        echo "✓ Đã khôi phục thành công."
         ;;
     backup)
-        OUT="${2:-$HOME/droid-linux-backup.tar.gz}"
-        echo "Backing up droid-linux rootfs to $OUT..."
+        OUT="${2:-$HOME/sixhen-os-backup.tar.gz}"
+        echo ":: Đang sao lưu sixhen OS ra $OUT..."
         proot-distro backup "$DISTRO" --output "$OUT"
-        echo "✓ Backup complete: $OUT"
+        echo "✓ Sao lưu hoàn tất: $OUT"
         ;;
     status)
-        echo "=== droid-linux status ==="
+        echo "=== sixhen OS Status ==="
         proot-distro list | grep "$DISTRO"
         ;;
     help|-h|--help)
-        echo "Usage: droid-linux [shell | gui | stop | reset | backup | status]"
+        echo "Sử dụng: sixhen-os [shell | gui | stop | reset | backup | status]"
+        echo "Lệnh tắt: dlinux, droid-linux"
         ;;
     *)
-        echo "Unknown command: $1. Run 'droid-linux help' for usage."
+        echo "Lệnh không hợp lệ: $1. Gõ 'sixhen-os help' để xem hướng dẫn."
         exit 1
         ;;
 esac
