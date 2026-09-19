@@ -69,7 +69,13 @@ XEOF
     echo "  - Mật khẩu VNC: 123456"
     echo "========================================================="
     echo "Mở ứng dụng AVNC hoặc RealVNC Viewer trên điện thoại để xem!"
+    echo "👉 Bấm Ctrl + C tại đây bất cứ lúc nào để dừng màn hình."
     echo ""
+
+    trap "vncserver -kill :1 >/dev/null 2>&1 || true; rm -f /tmp/.X1-lock /tmp/.X11-unix/X1 2>/dev/null || true; exit 0" INT TERM
+    while true; do
+        sleep 5
+    done
 }
 
 # Function to stop VNC
@@ -114,6 +120,7 @@ case "${1:-shell}" in
         '
         ;;
     gui|desktop)
+        termux-wake-lock 2>/dev/null || true
         proot-distro run "$DISTRO" --user root --shared-tmp -- /bin/bash -c "
             $(declare -f start_vnc_core)
             start_vnc_core
