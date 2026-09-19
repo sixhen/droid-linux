@@ -120,9 +120,10 @@ unset DBUS_SESSION_BUS_ADDRESS
 export DISPLAY=:1
 export LANG=C.UTF-8
 export LC_ALL=C.UTF-8
-export XDG_CURRENT_DESKTOP="XFCE"
-export XDG_SESSION_TYPE="x11"
-exec dbus-launch --exit-with-session startxfce4
+# Start minimal core UI (avoids Android 32-process Phantom Killer)
+xfwm4 &
+xfce4-panel &
+xfdesktop &
 XEOF
 chmod 755 /root/.vnc/xstartup
 cp -f /root/.vnc/xstartup /root/.config/tigervnc/xstartup 2>/dev/null || true
