@@ -86,6 +86,15 @@ if ! grep -q "nameserver" /etc/resolv.conf 2>/dev/null; then
     printf "nameserver 1.1.1.1\nnameserver 8.8.8.8\n" > /etc/resolv.conf 2>/dev/null || true
 fi
 
+# Bypass ca-certificates heavy fork-loop (avoids Android Signal 9 Phantom Process Killer)
+mkdir -p /var/lib/dpkg/info
+printf '#!/bin/sh\nexit 0\n' > /var/lib/dpkg/info/ca-certificates.postinst 2>/dev/null || true
+chmod +x /var/lib/dpkg/info/ca-certificates.postinst 2>/dev/null || true
+ln -sf /bin/true /usr/sbin/update-ca-certificates 2>/dev/null || true
+
+# Complete any interrupted dpkg configuration
+dpkg --configure -a 2>/dev/null || true
+
 # Update and install dev tools
 apt-get update -y
 apt-get install -y --no-install-recommends \
@@ -163,6 +172,11 @@ DISTRO="ubuntu"
 case "${1:-shell}" in
     shell|"")
         exec proot-distro run "$DISTRO" --user root --shared-tmp -- /bin/bash -c '
+            if [ -f /var/lib/dpkg/info/ca-certificates.postinst ]; then
+                printf "#!/bin/sh\nexit 0\n" > /var/lib/dpkg/info/ca-certificates.postinst 2>/dev/null || true
+            fi
+            ln -sf /bin/true /usr/sbin/update-ca-certificates 2>/dev/null || true
+            dpkg --configure -a 2>/dev/null || true
             if [ -x /bin/zsh ]; then
                 exec /bin/zsh -l
             else

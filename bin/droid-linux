@@ -8,6 +8,11 @@ DISTRO="ubuntu"
 case "${1:-shell}" in
     shell|"")
         exec proot-distro run "$DISTRO" --user root --shared-tmp -- /bin/bash -c '
+            if [ -f /var/lib/dpkg/info/ca-certificates.postinst ]; then
+                printf "#!/bin/sh\nexit 0\n" > /var/lib/dpkg/info/ca-certificates.postinst 2>/dev/null || true
+            fi
+            ln -sf /bin/true /usr/sbin/update-ca-certificates 2>/dev/null || true
+            dpkg --configure -a 2>/dev/null || true
             if [ -x /bin/zsh ]; then
                 exec /bin/zsh -l
             else
