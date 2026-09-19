@@ -38,6 +38,11 @@ export LC_ALL=C.UTF-8
 xfwm4 &
 xfce4-panel &
 xfdesktop &
+
+# Keep session running indefinitely
+while true; do
+    sleep 3600
+done
 XEOF
     chmod 755 /root/.vnc/xstartup
     cp -f /root/.vnc/xstartup /root/.config/tigervnc/xstartup
