@@ -73,7 +73,7 @@ stop_vnc_core() {
 }
 
 # Check if already executed INSIDE the Ubuntu container
-if [ -f "/etc/debian_version" ] && [ ! -d "/data/data/com.termux" ]; then
+if [ -f "/etc/debian_version" ]; then
     case "${1:-shell}" in
         gui|desktop)
             start_vnc_core
